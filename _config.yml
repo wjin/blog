@@ -1,0 +1,16 @@
+markdown: redcarpet
+redcarpet:
+  extensions: ["fenced_code_blocks", "tables", "highlight", "with_toc_data", "strikethrough", "underline"]
+
+pygments: true
+permalink: /posts/:title.html
+auto: true
+title: Eric's Blog
+author:
+  name: Eric
+  email: wjin.cn@gmail.com
+  github: wjin
+
+production_url: http://blog.wjin.org
+
+baseurl: /
