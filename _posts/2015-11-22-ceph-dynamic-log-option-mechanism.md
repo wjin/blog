@@ -548,6 +548,10 @@ struct Entry {
 
 > ceph daemon path\_to\_admin\_socket/osd.0.asok config show
 
+或
+
+> ceph daemon osd.0 config show
+
 这是怎么实现的呢？和Log类一样，AdminSocket也是在CephContext中初始化的：
 
 ```cpp
