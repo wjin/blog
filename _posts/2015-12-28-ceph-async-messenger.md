@@ -14,7 +14,11 @@ ceph源码中有两种网络通信的实现方式，SimpleMessenger实现比较�
 比如libevent库。ceph源码中也基于epoll实现了AsyncMessenger，这有助于减少集群中网络通信所需要的线程数，
 目前实现虽然还不太稳定，并不是默认的通信组件，但是未来一定会取代SimpleMessenger。
 
-# Initialization
+# Server
+
+服务端需要监听端口，等待连接请求到来，然后接受请求建立连接进行通信。
+
+## Initialization
 
 以osd进程为例，在进程启动的过程中，会创建Messenger对象，用于管理网络连接，监听端口，接收请求，源码在文件src/ceph_osd.cc:
 
@@ -294,7 +298,7 @@ void ms_deliver_handle_fast_connect(Connection *con) {
 }
 ```
 
-# Deal with Event 
+## Deal with Event
 
 在绑定地址进行端口监听以后，就会等着连接到来，要处理连接请求，肯定得创建Worker线程来处理吧？
 
@@ -385,7 +389,7 @@ int EpollDriver::event_wait(vector<FiredFileEvent> &fired_events, struct timeval
 }
 ```
 
-# Add Listen Fd
+## Add Listen Fd
 
 Worker线程循环不停的处理事件，其实就是调用epoll\_wait，返回就绪事件的fd，然后调用fd对应的回调read\_cb或write\_cb，很明显，epoll\_wait能够返回就绪的fd，
 这个fd必然是之前添加进去的，什么时候添加的呢？还记得在第二步Bind的时候，Processor类中创建了listen\_fd，要想监听来自这个fd的请求，必然要将其添加到epoll进行管理。
@@ -440,7 +444,7 @@ int Processor::start(Worker *w)
 }
 ```
 
-# Accept Connection
+## Accept Connection
 
 listen fd添加进去以后，初始化过程就算全部完成了。当新的连接请求到来，如前所述，worker线程会调用process\_event函数，回调就会被执行：
 
@@ -546,7 +550,7 @@ int EventCenter::process_events(int timeout_microseconds)
 }
 ```
 
-# Add Accept Fd
+## Add Accept Fd
 
 从分析看，连接请求的callback会很快被执行。前面已经有了accept接收请求的fd，现在需要将那个fd加入epoll结构，管理起来，然后就可以进行通信，
 callback最终就是做这些事情：
@@ -572,14 +576,14 @@ void AsyncConnection::accept(int incoming)
   sd = incoming;
   state = STATE_ACCEPTING;
   center->create_file_event(sd, EVENT_READABLE, read_handler); // sd就是连接成功的fd，加进epoll管理
-  // rescheduler connection in order to avoid lock dep
-  process();
+  process(); // 服务器端的状态机开始执行，会先向客户端发送BANNER消息
 }
 ```
 
-# Communication
+## Communication
 
-当接受请求的fd(accept返回的fd)加进epoll进行管理后，有消息过来，worker线程就会处理，然后执行回调read_handler:
+注意服务端AsyncConnection状态机的初始状态是STATE\_ACCEPTING，服务器端的状态机会先向客户端发送BANNER消息。
+以后收到消息，worker线程就会调用read\_handler处理，然后调用process，状态机不停的转换状态:
 
 ```cpp
 // 注册的回调类
@@ -634,7 +638,7 @@ int AsyncConnection::_process_connection()
 }
 ```
 
-AsyncConnection就是负责通信的类，用状态机实现，要理解这个状态机的原理，必须理解ceph的应用层通信协议，
+AsyncConnection就是负责通信的类，要理解这个状态机的原理，必须理解ceph的应用层通信协议，
 可以参看[官方文档](http://docs.ceph.com/docs/master/dev/network-protocol/)的解释。
 
 AsyncMessenger的框架就算介绍完成了，当有新的连接请求到来，就会重复执行以下这几步：
@@ -646,6 +650,133 @@ AsyncMessenger的框架就算介绍完成了，当有新的连接请求到来，
 * communication
 
 由此可以看出，线程数不是随连接数线性增加的，只由最开始初始化的时候启动了多少个worker决定。
+
+# Client
+
+客户端的操作主要是发起connect操作，建立连接进行通信。所有的客户端都是基于librados库，然后通过RadosClient连接集群的:
+
+```cpp
+int librados::Rados::connect()
+{
+    return client->connect();
+}
+
+int librados::RadosClient::connect()
+{
+	......
+
+	// 创建messenger
+	messenger = Messenger::create(cct, cct->_conf->ms_type, entity_name_t::CLIENT(-1),
+			"radosclient", nonce);
+
+	......
+
+	// 创建objecter
+	// 发送消息的时候，比如librbd代码，都是通过objecter处理
+	// objecter需要借助于messenger发送，所以需要将创建的messenger传给objecter类
+	objecter = new (std::nothrow) Objecter(cct, messenger, &monclient,
+				&finisher,
+				cct->_conf->rados_mon_op_timeout,
+				cct->_conf->rados_osd_op_timeout);
+
+
+	// 同理，连接monitor也需要处理消息的收发
+	monclient.set_messenger(messenger);
+
+	objecter->init();
+	messenger->add_dispatcher_tail(objecter);
+	messenger->add_dispatcher_tail(this);
+
+	messenger->start();
+
+	......
+
+	messenger->set_myname(entity_name_t::CLIENT(monclient.get_global_id())); // ID全局唯一，所以需要向monitor获取
+
+	......
+}
+```
+
+connect操作只是初始化了messenger对象，真正需要通信的时候，才会去建立连接，以objecter.cc中的op\_submit为例：
+
+```cpp
+ceph_tid_t Objecter::_op_submit(Op *op, RWLock::Context& lc)
+{
+	......
+	int r = _get_session(op->target.osd, &s, lc);
+	......
+}
+
+int Objecter::_get_session(int osd, OSDSession **session, RWLock::Context& lc)
+{
+    ......
+
+    // session 不存在，会创建新的session，
+    s->con = messenger->get_connection(osdmap->get_inst(osd));
+    ......
+}
+
+ConnectionRef AsyncMessenger::get_connection(const entity_inst_t& dest)
+{
+	......
+    conn = create_connect(dest.addr, dest.name.type());
+	......
+}
+
+AsyncConnectionRef AsyncMessenger::create_connect(const entity_addr_t& addr, int type)
+{
+  // create connection
+  Worker *w = pool->get_worker();
+  AsyncConnectionRef conn = new AsyncConnection(cct, this, &w->center); // 创建connection
+  conn->connect(addr, type); // 连接
+  assert(!conns.count(addr));
+  conns[addr] = conn;
+
+  return conn;
+}
+
+void connect(const entity_addr_t& addr, int type)
+{
+    set_peer_type(type);
+    set_peer_addr(addr);
+    policy = msgr->get_policy(type);
+    _connect();
+}
+
+void AsyncConnection::_connect()
+{
+  state = STATE_CONNECTING; // 这个初始化状态很关键，是客户端状态机的起始状态
+  stopping.set(0);
+  center->dispatch_event_external(read_handler); // 放入队列等待worker处理
+}
+```
+
+这里和前面一样，worker会处理这个外部事件，read\_handler就会调用process函数，紧接着就过度到\_process\_connection:
+
+```cpp
+int AsyncConnection::_process_connection()
+{
+  int r = 0;
+
+  switch(state) {
+
+    case STATE_CONNECTING: // 初始状态
+      {
+		......
+
+        sd = net.connect(get_peer_addr()); // 通过net类的功能，实际上就是调用connect系统调用，建立socket通信
+
+		// 连接成功后，将socket fd加入epoll进行管理
+        center->create_file_event(sd, EVENT_READABLE, read_handler);
+        state = STATE_CONNECTING_WAIT_BANNER;
+        break;
+      }
+  }
+}
+```
+
+接下来就是客户端和服务端的通信，都是通过AsyncConnection的状态机完成。同理，客户端即使创建多个messenger，
+他们仍然共享一个workerpool，线程数由这个pool初始化的时候决定，不会随着连接的增加而线性增加。
 
 # Summary
 
