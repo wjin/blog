@@ -389,6 +389,10 @@ int EpollDriver::event_wait(vector<FiredFileEvent> &fired_events, struct timeval
 }
 ```
 
+process\_events函数中，需要注意的是，这里处理三种事件，与fd相关的读写事件，与时间相关的time事件，还有添加的外部事件，
+在处理fd的时候，如果没有fd就绪就会一直wait等待超时（最大超时时间不超过下次时间事件的值）。但是，在这个过程中，
+有两种情况需要被唤醒，一是添加了一个更小的时间事件（最近发生），二是添加了外部事件。
+
 ## Add Listen Fd
 
 Worker线程循环不停的处理事件，其实就是调用epoll\_wait，返回就绪事件的fd，然后调用fd对应的回调read\_cb或write\_cb，很明显，epoll\_wait能够返回就绪的fd，
