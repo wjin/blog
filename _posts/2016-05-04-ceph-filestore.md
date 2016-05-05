@@ -31,10 +31,18 @@ int FileStore::queue_transactions(Sequencer *posr, list<Transaction*> &tls,
 {
   ......
 
-  // 这里的OpSequencer非常关键，同一个PG会使用同样的sequencer，保证PG操作串行化
+  // posr，定义在PG类中，对于同一个PG，一定是一样的，这里的default_osr根本就不会用，Jewel新代码已经删除了
+  // OpSequencer非常关键，同一个PG会使用同样的OpSequencer，保证PG操作串行化
   OpSequencer *osr;
   if (!posr)
     posr = &default_osr;
+  if (posr->p) {
+    osr = static_cast<OpSequencer *>(posr->p);
+  } else {
+    osr = new OpSequencer; // PG的第一次操作的时候，会创建一个OpSequencer，以后就会复用
+    osr->parent = posr;
+    posr->p = osr;
+  }
 
   ......
 
