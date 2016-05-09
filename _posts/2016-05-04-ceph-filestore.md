@@ -18,6 +18,64 @@ ceph后端存储引擎有多种实现(filestore, kstore, memstore, bluestore), b
 
 本文顺着代码流程，分析写流程中一些值得关注的细节，然后总结下throttle， 非幂等操作和tuning参数。
 
+涉及到的相关线程:
+
+* OSD::osd\_op\_tp -> 提交写请求到journal队列
+
+* FileJournal::write thread -> 写journal
+
+* JournalingObjectStore::finisher -> journal完成后的回调
+
+* FileStore::ondisk_finisher -> journal落盘的回调，标志写成功，但数据不可读
+
+* FileStore::op_tp -> apply到文件系统的page cache，不保证落盘
+
+* WBThrottle::thread -> apply文件系统的限流
+
+* FileStore::op_finisher -> apply文件系统完成的回调，标志数据可读
+
+* FileStore::sync thread -> sync文件系统的内容到磁盘，将序列号通知journal，使得journal可以释放空间，重复利用
+
+操作语义:
+
+* submit: 提交到journal队列
+
+* apply: 写文件系统page cache
+
+* commit: 将文件系统page cache数据sync到磁盘
+
+
+
+重要数据结构:
+
+```cpp
+class JournalingObjectStore : public ObjectStore {
+protected:
+
+  class SubmitManager {
+    Mutex lock;
+    uint64_t op_seq; // journal提交的序列号，全局唯一
+    uint64_t op_submitted;
+	......
+  } submit_manager;
+
+  class ApplyManager {
+    Mutex apply_lock;
+    bool blocked;
+    Cond blocked_cond;
+    int open_ops;
+    uint64_t max_applied_seq; // apply到文件系统page cache的序列号
+
+    Mutex com_lock;
+    map<version_t, vector<Context*> > commit_waiters;
+    uint64_t committing_seq, committed_seq; // 将文件系统page cache的数据fsync到磁盘的序列号，用来通知journal释放空间
+	......
+  } apply_manager;
+
+  ......
+};
+```
+
 # Write
 
 ## OSD::osd\_op\_tp
@@ -69,7 +127,7 @@ int FileStore::queue_transactions(Sequencer *posr, list<Transaction*> &tls,
     } else {
       assert(0);
     }
-    submit_manager.op_submit_finish(op_num);
+    submit_manager.op_submit_finish(op_num); // op提交到journal队列完成
     return 0;
   }
 
@@ -142,6 +200,9 @@ void FileJournal::queue_completions_thru(uint64_t seq)
   finisher_cond.Signal();
 }
 ```
+
+需要注意的是，在journal准备写和写完成处理completions的时候，调用队列的锁太频繁，可以优化。
+master branch已经有类似patch: [pr6701](https://github.com/ceph/ceph/pull/6701)
 
 ## JournalingObjectStore::finisher
 
@@ -240,7 +301,13 @@ OpSequencer中apply\_lock保证PG内部OP的串行化，并不是保证内部队
 
 # Throttle
 
-filestore实现中，提供了三个限流的地方: 1) journal 2) filestore apply 3)filestore writeback
+FileStore实现中，提供了三个限流的地方:
+
+* journal
+
+* filestore apply
+
+* filestore writeback
 
 ## journal
 
@@ -319,7 +386,8 @@ struct SequencerPosition {
 };
 ```
 
-看clone例子，操作前，先检查下，如果可以继续执行，就执行操作，操作完成后，设置一个guard。
+看clone例子，操作前，先检查下，如果可以继续执行，就执行操作，操作完成后，设置一个guard，这样对于非幂等操作，如果上次执行过，
+肯定是有记录的，再一次执行的时候check就会失败，就不继续执行。
 
 ```cpp
 int FileStore::_clone(const coll_t& cid, const ghobject_t& oldoid, const ghobject_t& newoid,
