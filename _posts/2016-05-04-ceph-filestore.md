@@ -44,8 +44,6 @@ ceph后端存储引擎有多种实现(filestore, kstore, memstore, bluestore), b
 
 * commit: 将文件系统page cache数据sync到磁盘
 
-
-
 重要数据结构:
 
 ```cpp
@@ -298,6 +296,138 @@ OpSequencer中apply\_lock保证PG内部OP的串行化，并不是保证内部队
 其实也还好，虽然FileStore::osd\_tp是线程池，会有多个线程，但是这些线程在开始处理apply
 的时候，会先获取apply\_lock，然后在执行完成的时候，从q出队列op的时候获取qlock，所以不会同时出现多个FileStore::osd\_tp的线程去
 抢qlock这个锁，可以认为同一时刻q只增加了两个线程去抢qlock，即JournalingObjectStore::finisher 和 其中一个FileStore::osd\_tp线程。
+
+## FileStore::sync_thread
+
+sync线程实现比较简单，目的是获取一个序列号，保证此序列号之前的数据都已经apply过了，即数据已经在page cache中，
+然后执行fsync，更新序列号，这样可以保证此序列号之前的数据已经存入disk中，以后不在需要，journal可以做trim释放空间。
+
+需要注意在获取序列号的过程中，会导致FileStore::op\_tp block住，影响apply流程，对性能有损失，
+可以适当调整参数filestore\_max\_sync\_interval。有一个潜在问题是，如果长时间不sync，可能会导致执行sync的时候，
+整个目录数据过多，导致一次sync时间太长，也可能导致系统内存不足而OOM，这些需要结合kernel参数dirty\_ratio 和 dirty\_expire\_centisecs调优。
+
+```cpp
+void FileStore::sync_entry()
+{
+  lock.Lock();
+  while (!stop) {
+	......
+
+    op_tp.pause(); // 暂停apply线程池的处理
+    if (apply_manager.commit_start()) { // 如果有新的请求需要commit, 返回true
+
+      uint64_t cp = apply_manager.get_committing_seq(); // 获取已经apply过的序列号
+
+	  ......
+
+      if (backend->can_checkpoint()) {
+		  ......
+
+      } else {
+		apply_manager.commit_started(); // 设置block为false，主要是为journal replay服务
+		op_tp.unpause(); // 恢复线程池
+
+		int err = backend->syncfs(); // 这里会sync osd的整个current目录
+
+		err = write_op_seq(op_fd, cp); // 记录下commit的序列号
+	
+		err = ::fsync(op_fd); // 保证更新序列号的操作落盘
+      }
+      
+      apply_manager.commit_finish(); // 完成commit，通知journal
+      wbthrottle.clear();
+
+	  ......
+
+    } else {
+      op_tp.unpause();
+    }
+	......
+  }
+  stop = false;
+  lock.Unlock();
+}
+
+bool JournalingObjectStore::ApplyManager::commit_start()
+{
+  bool ret = false;
+
+  uint64_t _committing_seq = 0;
+  {
+    Mutex::Locker l(apply_lock);
+
+    blocked = true; // 这个仅仅为journal replay起作用
+
+    while (open_ops > 0) { // 等待其他inflight apply 完成
+      blocked_cond.Wait(apply_lock);
+    }
+
+    {
+      Mutex::Locker l(com_lock);
+      if (max_applied_seq == committed_seq) {
+		blocked = false;
+		goto out;
+      }
+
+      _committing_seq = committing_seq = max_applied_seq; // 更新序列号
+    }
+  }
+  ret = true;
+
+ out:
+  if (journal)
+    journal->commit_start(_committing_seq);  // tell the journal too
+  return ret;
+}
+```
+
+这里比较晦涩的地方是，sync线程先pause住FileStore::op\_tp线程池，然后调用commit\_start(),
+pause后说明线程池不会再有新的apply请求了，为什么还设置变量blocked为true？
+
+首先，设置这个变量为true，目的是防止继续apply:
+
+```cpp
+uint64_t JournalingObjectStore::ApplyManager::op_apply_start(uint64_t op)
+{
+  Mutex::Locker l(apply_lock);
+  while (blocked) { // 新的apply操作将会阻塞
+    blocked_cond.Wait(apply_lock);
+  }
+
+  assert(!blocked);
+  assert(op > committed_seq);
+  open_ops++;
+  return op;
+}
+```
+
+其次，有一种特殊情况，即journal在做replay的时候，apply的操作不是在FileStore::op\_op线程池内完成，
+而是在其他线程调用mount的时候，回放日志完成apply，所以pause op\_tp不起作用，停止不了apply操作。
+如果回放日志太多或太久，导致sync线程开始工作，那么此时需要将回放日志的线程暂停一下，
+以便获取序列号，这时候blocked就起作用了，可以阻塞调用mount的线程，等commit完成后唤醒继续replay。
+
+
+```cpp
+void JournalingObjectStore::ApplyManager::commit_started()
+{
+  blocked = false; // 设置回false
+  blocked_cond.Signal(); // 唤醒
+}
+```
+
+另外还需要注意，sync线程调用commit\_start()是有可能被阻塞的，需要等所有的inflight apply完成，
+所以apply完成后会检查是否有blocked，这里和刚才的情况不一样，虽然都是阻塞在blocked变量上:
+
+```cpp
+void JournalingObjectStore::ApplyManager::op_apply_finish(uint64_t op)
+{
+  ......
+  if (blocked) {
+    blocked_cond.Signal(); // 唤醒sync线程
+  }
+  ......
+}
+```
 
 # Throttle
 
