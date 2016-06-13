@@ -209,7 +209,7 @@ void Paxos::handle_lease(MMonPaxos *lease)
 
 # Paxos & PaxosService
 
-paxos算法保证各moitor的数据一致，具体参见[这篇文章](http://blog.wjin.org/posts/ceph-monitor-paxos.html)。
+paxos算法保证各monitor的数据一致，具体参见[这篇文章](http://blog.wjin.org/posts/ceph-monitor-paxos.html)。
 
 # Consistency
 
