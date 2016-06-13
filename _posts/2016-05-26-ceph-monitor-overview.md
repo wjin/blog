@@ -29,7 +29,8 @@ monitor涉及的内容大致包括以下几个方面:
 * leader elect
 * timecheck
 * lease
-* paxos & paxos service
+* paxos
+* paxos service
 * consistency
 
 下面简单对每一方面进行介绍。
@@ -207,13 +208,17 @@ void Paxos::handle_lease(MMonPaxos *lease)
 }
 ```
 
-# Paxos & PaxosService
+# Paxos
 
 paxos算法保证各monitor的数据一致，具体参见[这篇文章](http://blog.wjin.org/posts/ceph-monitor-paxos.html)。
 
+# PaxosService
+
+PaxosService比较简单，内部利用类Paxos的功能，提供一些模板方法，方便实现不同的服务，具体参见[这篇文章](http://blog.wjin.org/posts/ceph-monitor-paxosservice.html)。
+
 # Consistency
 
-## Monmap
+### Monmap
 
 monitor新加入的时候，会mkfs，将自己加入monmap，并且存在后端存储中。后续如果异常宕机或退出，再次启动后会读取原来的monmap，
 然后通过probing机制发现其他的monitor，申请加入quorum，并且重新选举。如果在宕机过程中monmap有变化，probing阶段会share monmap并更新。
@@ -233,12 +238,12 @@ monitor新加入的时候，会mkfs，将自己加入monmap，并且存在后端
 当然这种case实际运维过程中应该不会遇到这么极端，但是需要明白monmap是非常重要的，它的一致性很关键，是一切后续流程的基石，所以在bootstrap阶段sync数据的时候，
 都会备份一份monmap以防万一。
 
-## Sync
+### Sync
 
 probing阶段，monitor会sync数据，如果差距过大，即版本没重叠，就做全量sync，否则增量sync，这里也需要注意，如果差距不大，还没有超过需要sync的阈值，不会做数据sync，
 这个阈值由参数paxos\_max\_join\_drift控制。这就意味着，probing完成后，进入electing阶段，新加入的这个monitor数据很可能是落后几个版本的，
 这个数据的恢复需要paxos的recovering阶段来完成，从而达到数据的一致性。
 
-## Paxos
+### Paxos
 
 leader选举完成后，leader节点会执行collect函数，即做数据recover，这会保证各monitor数据最终一致，commit的数据一定会一样，如有accept过但没commit的数据，会重新propose。
