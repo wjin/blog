@@ -12,8 +12,6 @@ tags: [ceph]
 paxos算法主要用来解决分布式系统中的数据一致性，ceph monitor中实现了paxos算法，然后抽象出了PaxosService基类，基于此实现了不同的服务，
 比如MonmapMonitor, OSDMonitor, PGMonitor等，分别对应monmap, osdmap, pgmap。
 
-![img](/assets/img/post/ceph_mon_paxosservice.png)
-
 paxos需要根据monitor状态来做转换，大致如下:
 
 * monitor启动的时候，preinit会调用函数init\_paxos初始化paxos
