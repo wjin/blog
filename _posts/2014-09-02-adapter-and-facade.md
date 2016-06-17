@@ -18,7 +18,7 @@ There are two kinds of adapter pattern:
 
 * object adapter using **composition**
 
-* olass adapter using **multi-inheritance**
+* class adapter using **multi-inheritance**
 
 
 ## Facade
