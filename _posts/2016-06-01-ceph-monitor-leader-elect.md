@@ -25,7 +25,7 @@ rank值最小的获胜，简单快速的达到选举目的。
 
 3. 节点收到quorum enter/exit命令
 
-## bootstrap
+### bootstrap
 
 对于第一种情况，bootstrap被调用的地方非常频繁:
 
@@ -40,23 +40,25 @@ monitor提供的paxos算法内部采用lease协议，保证副本数据在一定
 所有的peon节点收不到来自leader的更新消息，也会重新选举。
 
 ```cpp
+// leader调用
 void Paxos::lease_ack_timeout()
 {
-  assert(mon->is_leader()); // leader调用
+  assert(mon->is_leader());
   assert(is_active());
   lease_ack_timeout_event = 0;
   mon->bootstrap(); // 重启
 }
 
+// peon调用
 void Paxos::lease_timeout()
 {
-  assert(mon->is_peon()); // peon调用
+  assert(mon->is_peon());
   lease_timeout_event = 0;
   mon->bootstrap(); // 重启
 }
 ```
 
-## MMonElection
+### MMonElection
 
 对于第二种情况，应该说这是第一种情况间接导致的，当某个节点发出选举消息后，其他节点收到消息会做相应的处理。
 常见的case是其他节点已经形成一个quorum，并且有leader存在，此时收到选举消息后，发现是来自quorum外的节点，
@@ -85,7 +87,7 @@ void Elector::handle_propose(MMonElection *m)
 }
 ```
 
-## quorum enter/exit
+### quorum enter/exit
 
 第三种情况，这个其实是一个命令，感觉主要用于运维测试。原理是设置一个bool值，然后调用选举函数，这样就会让此monitor加入或者退出quorum。
 针对某个特定的monitor，可以通过如下命令验证:
@@ -245,7 +247,7 @@ void Elector::victory()
 
 # Summary
 
-总结来看，monitor选举的过程是非常简单迅速的，满足条件后向monmap中的所有节点发送消息MMonElection::PROPOSE消息，待收到所有确认消息后就会胜出。
+总结来看，monitor选举的过程是非常简单迅速的，满足条件后向monmap中的所有节点发送消息MMonElection::OP\_PROPOSE消息，待收到所有确认消息后就会胜出。
 
 逻辑处理主要是在函数handle\_propose中，举例如下，假设monitor A向monitor B发送PROPOSE消息，考虑两种情况:
 
@@ -261,6 +263,6 @@ void Elector::victory()
 
 * epoch A < epoch B, B会发起选举，并且不确认A，A收到B的消息，更新epoch，由于rank A较大，A会确认B
 
-* epoch A = epoch B, B会发起选举，并且不确认A, A会确认B
+* epoch A = epoch B, B会发起选举，并且不确认A，A会确认B
 
 * epoch A > epoch B, B会更新自己的epoch，并且不确认A，然后发起选举，A会确认B
