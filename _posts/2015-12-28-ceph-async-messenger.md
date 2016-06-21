@@ -9,7 +9,7 @@ tags: [ceph]
 
 # Overview
 
-ceph源码中有两种网络通信的实现方式，SimpleMessenger实现比较早，每一对通信的peer之间创建四个线程维护连接状态(每一端两个线程，分别负责读和写),
+ceph源码中有三种网络通信的实现方式，SimpleMessenger实现比较早，每一对通信的peer之间创建四个线程维护连接状态(每一端两个线程，分别负责读和写),
 这样当集群规模上去后，会导致大量的线程被创建。随着linux中epoll的实现，高并发的网络io都是借助于epoll这样的系统调用，
 比如libevent库。ceph源码中也基于epoll实现了AsyncMessenger，这有助于减少集群中网络通信所需要的线程数，
 目前实现虽然还不太稳定，并不是默认的通信组件，但是未来一定会取代SimpleMessenger。
@@ -18,7 +18,7 @@ ceph源码中有两种网络通信的实现方式，SimpleMessenger实现比较�
 
 服务端需要监听端口，等待连接请求到来，然后接受请求建立连接进行通信。
 
-## Initialization
+### Initialization
 
 以osd进程为例，在进程启动的过程中，会创建Messenger对象，用于管理网络连接，监听端口，接收请求，源码在文件src/ceph_osd.cc:
 
@@ -208,7 +208,7 @@ int EpollDriver::init(int nevent)
 并且初始化了具体的事件处理机制，如epoll，似乎所有工作已经就绪？
 其实不然，首先，worker的线程并没有启动，其次，osd进程的messenger也并没有绑定到特定端口进行监听，所以osd启动的过程中，还得有其他步骤。
 
-# Bind and Listen
+### Bind and Listen
 
 在messenger创建以后，会设置策略以及限流的参数，接下来就会绑定地址，对网络层套接字的处理，比如socket/bind/listen/accept等，主要是通过类Processor来管理：
 
@@ -298,7 +298,7 @@ void ms_deliver_handle_fast_connect(Connection *con) {
 }
 ```
 
-## Deal with Event
+### Deal with Event
 
 在绑定地址进行端口监听以后，就会等着连接到来，要处理连接请求，肯定得创建Worker线程来处理吧？
 
@@ -393,7 +393,7 @@ process\_events函数中，需要注意的是，这里处理三种事件，与fd
 在处理fd的时候，如果没有fd就绪就会一直wait等待超时（最大超时时间不超过下次时间事件的值）。但是，在这个过程中，
 有两种情况需要被唤醒，一是添加了一个更小的时间事件（最近发生），二是添加了外部事件。
 
-## Add Listen Fd
+### Add Listen Fd
 
 Worker线程循环不停的处理事件，其实就是调用epoll\_wait，返回就绪事件的fd，然后调用fd对应的回调read\_cb或write\_cb，很明显，epoll\_wait能够返回就绪的fd，
 这个fd必然是之前添加进去的，什么时候添加的呢？还记得在第二步Bind的时候，Processor类中创建了listen\_fd，要想监听来自这个fd的请求，必然要将其添加到epoll进行管理。
@@ -448,7 +448,7 @@ int Processor::start(Worker *w)
 }
 ```
 
-## Accept Connection
+### Accept Connection
 
 listen fd添加进去以后，初始化过程就算全部完成了。当新的连接请求到来，如前所述，worker线程会调用process\_event函数，回调就会被执行：
 
@@ -554,7 +554,7 @@ int EventCenter::process_events(int timeout_microseconds)
 }
 ```
 
-## Add Accept Fd
+### Add Accept Fd
 
 从分析看，连接请求的callback会很快被执行。前面已经有了accept接收请求的fd，现在需要将那个fd加入epoll结构，管理起来，然后就可以进行通信，
 callback最终就是做这些事情：
@@ -584,7 +584,7 @@ void AsyncConnection::accept(int incoming)
 }
 ```
 
-## Communication
+### Communication
 
 注意服务端AsyncConnection状态机的初始状态是STATE\_ACCEPTING，服务器端的状态机会先向客户端发送BANNER消息。
 以后收到消息，worker线程就会调用read\_handler处理，然后调用process，状态机不停的转换状态:
