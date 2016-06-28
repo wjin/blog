@@ -44,6 +44,11 @@ ceph后端存储引擎有多种实现(filestore, kstore, memstore, bluestore), b
 
 * commit: 将文件系统page cache数据sync到磁盘
 
+备注一下，这里的commit指sync线程将page cache的数据sync到`data disk`的意思，不是journal的disk。容易引起误解的地方是，osd\_op\_tp在提交事务的时候，
+会有两个回调，一个是ondisk(客户端可以认为是on commit)，表示数据已经落盘，因为journal一般采用O\_DIRECT + O\_DSYNC方式，写journal成功就表示数据落盘，
+可以调用ondisk回调，通知客户端写成功，所以journal能改善写的性能，将随机转化为顺序，并且多个写可以合并成一次journal的写。
+另外一个是onreadable，表示数据可读，在FileStore::op\_tp线程池将数据写入page cache后，就可以读数据，可以调用onreadable回调。
+
 重要数据结构:
 
 ```cpp
