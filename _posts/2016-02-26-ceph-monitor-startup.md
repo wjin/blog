@@ -30,48 +30,48 @@ int main(int argc, const char **argv)
 	......
 
 	// 创建存储monitor数据的store，后端主要是用k/v形式存储
-    MonitorDBStore store(g_conf->mon_data);
-    int r = store.create_and_open(cerr);
+	MonitorDBStore store(g_conf->mon_data);
+	int r = store.create_and_open(cerr);
 
 	// 获取monitor map信息
-    MonMap monmap;
-    bufferlist mapbl;
-    int err = obtain_monmap(*store, mapbl); // 获取map
+	MonMap monmap;
+	bufferlist mapbl;
+	int err = obtain_monmap(*store, mapbl); // 获取map
 
 	// 获取监听的地址, 第一次会mkfs，然后生成一个map
 	// 以后直接从map里获取，所以如果第一次配置错误，修改配置文件，重启monitor进程是没有用的
-    entity_addr_t ipaddr;
-    if (monmap.contains(g_conf->name.get_id())) {
-        ipaddr = monmap.get_addr(g_conf->name.get_id());
+	entity_addr_t ipaddr;
+	if (monmap.contains(g_conf->name.get_id())) {
+		ipaddr = monmap.get_addr(g_conf->name.get_id());
 	} else {
 		......
 	}
 
 	// 创建用于消息通信的messenger
 	Messenger *msgr = Messenger::create(g_ceph_context, g_conf->ms_type,
-	    entity_name_t::MON(rank), "mon", 0);
+			entity_name_t::MON(rank), "mon", 0);
 
 	// 绑定端口
 	err = msgr->bind(ipaddr);
 
 	// monitor实现的具体类
-    mon = new Monitor(g_ceph_context, g_conf->name.get_id(), store,
-		    msgr, &monmap);
+	mon = new Monitor(g_ceph_context, g_conf->name.get_id(), store,
+			msgr, &monmap);
 
 	// 初始化
-    err = mon->preinit();
-    
+	err = mon->preinit();
+
 	// messenger开始接收消息
 	msgr->start();
 
 	// 继续初始化
-    mon->init();
+	mon->init();
 
 	// 等待结束
-    msgr->wait();
+	msgr->wait();
 
 	// 关闭store
-    store->close();
+	store->close();
 
 	......
 }
@@ -86,63 +86,63 @@ int main(int argc, const char **argv)
 
 从主线程中的流程看，初始化过程主要集中在类Monitor的preinit和init函数中，先看看Monitor类的构造函数然后分析这两个函数:
 
-## Constructor
+### Constructor
 
 ```cpp
 Monitor::Monitor(CephContext* cct_, string nm, MonitorDBStore *s,
-		 Messenger *m, MonMap *map) :
+		Messenger *m, MonMap *map) :
 {
-  ......
+	......
 
-  // paxos算法实现
-  paxos = new Paxos(this, "paxos");
+	// paxos算法实现
+	paxos = new Paxos(this, "paxos");
 
-  // 借助于paxos实现的不同服务
-  paxos_service[PAXOS_MDSMAP] = new MDSMonitor(this, paxos, "mdsmap");
-  paxos_service[PAXOS_MONMAP] = new MonmapMonitor(this, paxos, "monmap");
-  paxos_service[PAXOS_OSDMAP] = new OSDMonitor(this, paxos, "osdmap");
-  paxos_service[PAXOS_PGMAP] = new PGMonitor(this, paxos, "pgmap");
-  paxos_service[PAXOS_LOG] = new LogMonitor(this, paxos, "logm");
-  paxos_service[PAXOS_AUTH] = new AuthMonitor(this, paxos, "auth");
+	// 借助于paxos实现的不同服务
+	paxos_service[PAXOS_MDSMAP] = new MDSMonitor(this, paxos, "mdsmap");
+	paxos_service[PAXOS_MONMAP] = new MonmapMonitor(this, paxos, "monmap");
+	paxos_service[PAXOS_OSDMAP] = new OSDMonitor(this, paxos, "osdmap");
+	paxos_service[PAXOS_PGMAP] = new PGMonitor(this, paxos, "pgmap");
+	paxos_service[PAXOS_LOG] = new LogMonitor(this, paxos, "logm");
+	paxos_service[PAXOS_AUTH] = new AuthMonitor(this, paxos, "auth");
 
-  health_monitor = new HealthMonitor(this); // 主要监控monitor的数据存储空间变化情况，查看磁盘是否满了
-  config_key_service = new ConfigKeyService(this, paxos); // 存储一些用户自定义的k/v数据
-  ......
+	health_monitor = new HealthMonitor(this); // 主要监控monitor的数据存储空间变化情况，查看磁盘是否满了
+	config_key_service = new ConfigKeyService(this, paxos); // 存储一些用户自定义的k/v数据
+	......
 }
 ```
 
-## Preinit
+### Preinit
 
 接着是preinit函数:
 
 ```cpp
 int Monitor::preinit()
 {
-  .......
+	.......
 
-  init_paxos();
-  health_monitor->init();
+	init_paxos();
+	health_monitor->init();
 
-  ......
+	......
 }
 
 void Monitor::init_paxos()
 {
-  paxos->init(); // 读取paxos算法的关键信息
+	paxos->init(); // 读取paxos算法的关键信息
 
-  for (int i = 0; i < PAXOS_NUM; ++i) {
-    paxos_service[i]->init(); // 只有LogMonitor重载了init函数，其他服务没什么需要初始化的
-  }
+	for (int i = 0; i < PAXOS_NUM; ++i) {
+		paxos_service[i]->init(); // 只有LogMonitor重载了init函数，其他服务没什么需要初始化的
+	}
 
-  refresh_from_paxos(NULL); // 更新各服务信息
+	refresh_from_paxos(NULL); // 更新各服务信息
 }
 
 void Paxos::init()
 {
-  last_pn = get_store()->get(get_name(), "last_pn"); // 上次提议的编号
-  accepted_pn = get_store()->get(get_name(), "accepted_pn"); // 已经接受的最大编号
-  last_committed = get_store()->get(get_name(), "last_committed"); // 最后一次commit的版本
-  first_committed = get_store()->get(get_name(), "first_committed"); // 第一次commit的版本
+	last_pn = get_store()->get(get_name(), "last_pn"); // 上次提议的编号
+	accepted_pn = get_store()->get(get_name(), "accepted_pn"); // 已经接受的最大编号
+	last_committed = get_store()->get(get_name(), "last_committed"); // 最后一次commit的版本
+	first_committed = get_store()->get(get_name(), "first_committed"); // 第一次commit的版本
 }
 ```
 
@@ -153,40 +153,40 @@ commit版本决定了是否需要向其他monitor sync数据。last\_pn和accept
 ```cpp
 void Monitor::refresh_from_paxos(bool *need_bootstrap)
 {
-  ......
+	......
 
-  for (int i = 0; i < PAXOS_NUM; ++i) {
-    paxos_service[i]->refresh(need_bootstrap); // 调用模板方法更新
-  }
-  for (int i = 0; i < PAXOS_NUM; ++i) {
-    paxos_service[i]->post_refresh(); // 调用模板方法，更新后的处理
-  }
+	for (int i = 0; i < PAXOS_NUM; ++i) {
+		paxos_service[i]->refresh(need_bootstrap); // 调用模板方法更新
+	}
+	for (int i = 0; i < PAXOS_NUM; ++i) {
+		paxos_service[i]->post_refresh(); // 调用模板方法，更新后的处理
+	}
 }
 
 void PaxosService::refresh(bool *need_bootstrap)
 {
-  // 版本比较关键，决定是否需要更新
-  cached_first_committed = mon->store->get(get_service_name(), first_committed_name);
-  cached_last_committed = mon->store->get(get_service_name(), last_committed_name);
+	// 版本比较关键，决定是否需要更新
+	cached_first_committed = mon->store->get(get_service_name(), first_committed_name);
+	cached_last_committed = mon->store->get(get_service_name(), last_committed_name);
 
-  ......
+	......
 
-  update_from_paxos(need_bootstrap); // 各服务实现自己的需求
+	update_from_paxos(need_bootstrap); // 各服务实现自己的需求
 }
 
 void PaxosService::post_refresh()
 {
-  post_paxos_update(); // 各服务实现自己的需求
+	post_paxos_update(); // 各服务实现自己的需求
 
-  if (mon->is_peon() && !waiting_for_finished_proposal.empty()) {
-    finish_contexts(g_ceph_context, waiting_for_finished_proposal, -EAGAIN);
-  }
+	if (mon->is_peon() && !waiting_for_finished_proposal.empty()) {
+		finish_contexts(g_ceph_context, waiting_for_finished_proposal, -EAGAIN);
+	}
 }
 ```
 
 preinit主要是将Paxos和PaxosService等服务进行了初始化，读取了上次记录在store中的数据，为此monitor和其他monitor互动做好准备。
 
-## Init
+### Init
 
 接下来main thread初化messenger，准备消息的收发，然后调用init函数，和其他monitor进行互动:
 
@@ -194,19 +194,19 @@ preinit主要是将Paxos和PaxosService等服务进行了初始化，读取了�
 
 int Monitor::init()
 {
-  lock.Lock();
+	lock.Lock();
 
-  timer.init(); // 初始化timer线程
-  new_tick(); // 加入time事件
+	timer.init(); // 初始化timer线程
+	new_tick(); // 加入time事件
 
-  // i'm ready!
-  messenger->add_dispatcher_tail(this);
+	// i'm ready!
+	messenger->add_dispatcher_tail(this);
 
-  bootstrap(); // 启动
+	bootstrap(); // 启动
 
-  ......
-  lock.Unlock();
-  return 0;
+	......
+	lock.Unlock();
+	return 0;
 }
 ```
 
@@ -216,32 +216,32 @@ bootstrap从名字上看，就可以知道是引导monitor正确启动的入口�
 ```cpp
 void Monitor::bootstrap()
 {
-  wait_for_paxos_write();
+	wait_for_paxos_write();
 
-  sync_reset_requester();
-  unregister_cluster_logger();
-  cancel_probe_timeout();
+	sync_reset_requester();
+	unregister_cluster_logger();
+	cancel_probe_timeout();
 
-  // 设置状态
-  state = STATE_PROBING;
+	// 设置状态
+	state = STATE_PROBING;
 
-  _reset(); // 重置paxos及其服务
+	_reset(); // 重置paxos及其服务
 
-  // 只有一个monitor，没必要联系其他monitor进行leader选举
-  if (monmap->size() == 1 && rank == 0) {
-    win_standalone_election();
-    return;
-  }
+	// 只有一个monitor，没必要联系其他monitor进行leader选举
+	if (monmap->size() == 1 && rank == 0) {
+		win_standalone_election();
+		return;
+	}
 
-  ......
-  // 发送消息，收集信息
-  for (unsigned i = 0; i < monmap->size(); i++) {
-    if ((int)i != rank)
-      messenger->send_message(new MMonProbe(monmap->fsid, MMonProbe::OP_PROBE, name, has_ever_joined),
-			      monmap->get_inst(i));
-  }
+	......
+	// 发送消息，收集信息
+	for (unsigned i = 0; i < monmap->size(); i++) {
+		if ((int)i != rank)
+			messenger->send_message(new MMonProbe(monmap->fsid, MMonProbe::OP_PROBE, name, has_ever_joined),
+					monmap->get_inst(i));
+	}
 
-  ......
+	......
 }
 ```
 
@@ -250,23 +250,23 @@ void Monitor::bootstrap()
 ```cpp
 void Monitor::handle_probe_reply(MMonProbe *m)
 {
-    ......
+	......
 
 	// 同步数据
-    if (paxos->get_version() + g_conf->paxos_max_join_drift < m->paxos_last_version) {
-      cancel_probe_timeout();
-      sync_start(other, false);
-      m->put();
-      return;
-    }
+	if (paxos->get_version() + g_conf->paxos_max_join_drift < m->paxos_last_version) {
+		cancel_probe_timeout();
+		sync_start(other, false);
+		m->put();
+		return;
+	}
 
 	// 满足条件，开始选举
-    unsigned need = monmap->size() / 2 + 1;
-    if (outside_quorum.size() >= need) {
-      if (outside_quorum.count(name)) {
-        start_election();
-      }
-    }
+	unsigned need = monmap->size() / 2 + 1;
+	if (outside_quorum.size() >= need) {
+		if (outside_quorum.count(name)) {
+			start_election();
+		}
+	}
 
 	......
 }
@@ -283,12 +283,12 @@ main thread发送probe相关消息后就开始wait，等待进程退出了。后
 后期所有的处理几乎都是在dispatch线程内完成的:
 
 ```cpp
-  bool ms_dispatch(Message *m) {
-    lock.Lock();
-    _ms_dispatch(m);
-    lock.Unlock();
-    return true;
-  }
+bool ms_dispatch(Message *m) {
+	lock.Lock();
+	_ms_dispatch(m);
+	lock.Unlock();
+	return true;
+}
 ```
 
 在分发消息的时候，首先还是获取了monitor内部的锁，初始化的时候只创建了一个messenger，那么只会有一个dispatch线程(这里只考虑SimpleMessenger, 
