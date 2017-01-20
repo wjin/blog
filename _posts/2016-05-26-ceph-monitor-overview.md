@@ -50,10 +50,10 @@ monitor维护了很多map以及自身Elector和Paxos算法的数据，这些数�
 ```cpp
 class MonitorDBStore
 {
-    boost::scoped_ptr<KeyValueDB> db; // 具体存储的backend，可以是levelDB或rocksDB
-    ......
+	boost::scoped_ptr<KeyValueDB> db; // 具体存储的backend，可以是levelDB或rocksDB
+	......
 
-    struct Op { // 对key的操作
+	struct Op { // 对key的操作
 		uint8_t type;
 		string prefix;
 		string key, endkey;
@@ -93,7 +93,7 @@ monitor有一个抽象基类QuorumService，用以派生一些针对quorum的服
 
 ![img](/assets/img/post/ceph_mon_quorumservice.png)
 
-这里感觉继承关系有些滥用，类ConfigKeyService提供用户一些接口，可以方便的在monitor存储一些自定义的key/value数据，
+这里感觉继承关系有些滥用，类ConfigKeyService提供给用户一些接口，可以方便的在monitor存储一些自定义的key/value数据，
 这需要通过leader向paxos算法发出propose完成，似乎和QuorumService关系不大。
 
 HealthMonitor用来检查monitor状态，内部包含一个服务的map:
@@ -101,24 +101,23 @@ HealthMonitor用来检查monitor状态，内部包含一个服务的map:
 ```cpp
 class HealthMonitor : public QuorumService
 {
-  map<int,HealthService*> services; // 需要检查的服务
-  ......
+	map<int,HealthService*> services; // 需要检查的服务
+	......
 };
 ```
 
 目前只实现了一个服务，即DataHealthService，这个用来检查monitor存储的数据，一方面检查磁盘空间使用情况，另一方面检查后端k/v存储的具体使用情况:
 
 ```cpp
-class DataHealthService :
-  public HealthService
+class DataHealthService : public HealthService
 {
-  map<entity_inst_t,DataStats> stats; // 检查的项目
-  ......
+	map<entity_inst_t,DataStats> stats; // 检查的项目
+	......
 };
 
 struct DataStats {
-  ceph_data_stats_t fs_stats; // 文件系统使用情况
-  LevelDBStoreStats store_stats; // k/v后端存储的使用情况，支持多个后端的情况下，名字不应该再用leveldb了
+	ceph_data_stats_t fs_stats; // 文件系统使用情况
+	LevelDBStoreStats store_stats; // k/v后端存储的使用情况，支持多个后端的情况下，名字不应该再用leveldb了
 };
 ```
 
@@ -130,7 +129,7 @@ struct DataStats {
 
 > ceph scrub
 
-scrub的对象只是PaxosService的数据，不会保护monitor自身的一些元数据和paxos的数据，monitor自身的数据，在启动的时候应该就会做check，
+scrub的对象只是PaxosService的数据，不会包括monitor自身的一些元数据和paxos的数据，monitor自身的数据，在启动的时候应该就会做check，
 paxos的数据因为很有可能每个节点的数据本身就不一样，比如正在处理proposal的时候，所以也不scrub，这也从侧面反应monitor的scrub不是那么重要。
 
 # Leader Elect
@@ -176,35 +175,35 @@ mon_lease_ack_timeout // 超时重新选举的时间，默认为10秒，必须�
 // 判断lease是否在有效期内
 bool Paxos::is_lease_valid()
 {
-  return ((mon->get_quorum().size() == 1)
-      || (ceph_clock_now(g_ceph_context) < lease_expire));
+	return ((mon->get_quorum().size() == 1)
+		|| (ceph_clock_now(g_ceph_context) < lease_expire));
 }
 
 void Paxos::extend_lease()
 {
-  assert(mon->is_leader());
-  lease_expire = ceph_clock_now(g_ceph_context);
-  lease_expire += g_conf->mon_lease; // leader发送消息的时候，延长时间
+	assert(mon->is_leader());
+	lease_expire = ceph_clock_now(g_ceph_context);
+	lease_expire += g_conf->mon_lease; // leader发送消息的时候，延长时间
 
-  ......
+	......
 }
 
 void Paxos::handle_lease(MMonPaxos *lease)
 {
-  ......
+	......
 
-  // extend lease
-  if (lease_expire < lease->lease_timestamp) {
-    lease_expire = lease->lease_timestamp; // peon根据leader的消息，更新时间
+	// extend lease
+	if (lease_expire < lease->lease_timestamp) {
+		lease_expire = lease->lease_timestamp; // peon根据leader的消息，更新时间
 
-    utime_t now = ceph_clock_now(g_ceph_context);
-    if (lease_expire < now) { // 不可读写的时间段，只是打印警告消息
-      utime_t diff = now - lease_expire;
-      derr << "lease_expire from " << lease->get_source_inst() << " is " << diff 
-		  << " seconds in the past; mons are probably laggy (or possibly clocks are too skewed)" << dendl;
-    }
-  }
-  ......
+		utime_t now = ceph_clock_now(g_ceph_context);
+		if (lease_expire < now) { // 不可读写的时间段，只是打印警告消息
+			utime_t diff = now - lease_expire;
+			derr << "lease_expire from " << lease->get_source_inst() << " is " << diff
+				<< " seconds in the past; mons are probably laggy (or possibly clocks are too skewed)" << dendl;
+		}
+	}
+	......
 }
 ```
 
