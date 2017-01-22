@@ -51,42 +51,40 @@ virtual void on_restart() { }
 bool PaxosService::dispatch(MonOpRequestRef op)
 {
 
-  PaxosServiceMessage *m = static_cast<PaxosServiceMessage*>(op->get_req()); // 消息类型
+	PaxosServiceMessage *m = static_cast<PaxosServiceMessage*>(op->get_req()); // 消息类型
 
-  ......
+	......
 
-  // 只读消息，处理后直接返回
-  if (preprocess_query(op)) 
-    return true;
+	// 只读消息，处理后直接返回
+	if (preprocess_query(op))
+		return true;
 
-  // 如果不是只读，那么要做更新，需要paxos round，必须leader节点处理
-  if (!mon->is_leader()) {
-    mon->forward_request_leader(op); // 非leader，转发消息
-    return true;
-  }
-  
-  // 如果目前不可更新，等待重试
-  if (!is_writeable()) {
-    wait_for_writeable(op, new C_RetryMessage(this, op));
-    return true;
-  }
+	// 如果不是只读，那么要做更新，需要paxos round，必须leader节点处理
+	if (!mon->is_leader()) {
+		mon->forward_request_leader(op); // 非leader，转发消息
+		return true;
+	}
 
-  // 更新
-  if (prepare_update(op)) { // 准备更新，
+	// 如果目前不可更新，等待重试
+	if (!is_writeable()) {
+		wait_for_writeable(op, new C_RetryMessage(this, op));
+		return true;
+	}
 
-    double delay = 0.0;
-    if (should_propose(delay)) {
+	// 更新
+	if (prepare_update(op)) { // 准备更新，
+		double delay = 0.0;
+		if (should_propose(delay)) {
+			if (delay == 0.0) {
+				propose_pending(); // 发起决议
+			} else {
+				mon->timer.add_event_after(delay, proposal_timer); // 等待一段时间后再决议
+			}
+		}
+	}
+	......
 
-      if (delay == 0.0) {
-		propose_pending(); // 发起决议
-      } else {
-		mon->timer.add_event_after(delay, proposal_timer); // 等待一段时间后再决议
-	  }
-    }
-  }
-  ......
-
-  return true;
+	return true;
 }
 ```
 
