@@ -152,7 +152,7 @@ half close: can still receive data
 
 **How about the third packet (ACK) lost when initiating a connection?**
 
-1. if client send data to server, server replys with RST.
+1. if client sends data to server, server replys with RST (this shouldn't happen because client will include ACK sequence when sending data).
 
 2. if client does not send data until server retransmission time out, server will re-send the second packet (SYN-ACK).
 
