@@ -21,13 +21,13 @@ it will notify the calling process.
 
 There are two stages in I/O operation and four I/O models in general.
 
-## Stage
+### Stage
 
 1. Wait for data to be ready
 
 2. Copy data from kernel space to user space
 
-## Model
+### Model
 
 **Blocking**
 
@@ -45,4 +45,16 @@ Above three models belong to synchronous I/O.
 
 **Asynchronous**
 
-It is not good so far. There is a long story about Asynchronous I/O in Linux mail list :(
+There are two aio ways in linux, glibc aio and libaio. Glibc aio is simulated by multi-threads and its performance is not good.
+However, libaio is a library that wrappers linux aio system calls, so its performance is better than glibc aio. Normally, we use
+libaio to develop applications, its major APIs are listed here:
+
+* io_setup
+
+* io_destroy
+
+* io_submit
+
+* io_cancel
+
+* io_getevents
