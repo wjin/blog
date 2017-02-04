@@ -9,7 +9,7 @@ tags: []
 
 # Introduction
 
-Recently, I meet a question: `Why does pthread_cond_wait need a lock?`
+Question: `Why does pthread_cond_wait need a lock?`
 
 We know that, when we use API `pthread_cond_wait`, we need to lock a mutex.
 
@@ -74,7 +74,7 @@ If there is no mutex in `pthread_cond_wait` function, we may write code like thi
 pthread_mutex_lock(&mtx);
 while (gx == 0) {
 	pthread_mutex_unlock(&mtx); // step1
-    pthread_cond_wait(&cond); // step2
+	pthread_cond_wait(&cond); // step2
 	pthread_mutex_lock(&mtx);
 }
 ...
@@ -105,58 +105,58 @@ As I am familiar with Bionic C code in Android, I will use code from there direc
 
 ```cpp
 int pthread_cond_wait(pthread_cond_t* cond, pthread_mutex_t* mutex) {
-  return __pthread_cond_timedwait(cond, mutex, NULL, COND_GET_CLOCK(cond->value));
+	return __pthread_cond_timedwait(cond, mutex, NULL, COND_GET_CLOCK(cond->value));
 }
 
 int pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t * mutex, const timespec *abstime) {
-  return __pthread_cond_timedwait(cond, mutex, abstime, COND_GET_CLOCK(cond->value));
+	return __pthread_cond_timedwait(cond, mutex, abstime, COND_GET_CLOCK(cond->value));
 }
 
 int __pthread_cond_timedwait(pthread_cond_t* cond, pthread_mutex_t* mutex, const timespec* abstime, clockid_t clock) {
-  timespec ts;
-  timespec* tsp;
+	timespec ts;
+	timespec* tsp;
 
-  if (abstime != NULL) {
-    if (__timespec_from_absolute(&ts, abstime, clock) < 0) {
-      return ETIMEDOUT;
-    }
-    tsp = &ts;
-  } else {
-    tsp = NULL;
-  }
+	if (abstime != NULL) {
+		if (__timespec_from_absolute(&ts, abstime, clock) < 0) {
+			return ETIMEDOUT;
+		}
+		tsp = &ts;
+	} else {
+		tsp = NULL;
+	}
 
-  return __pthread_cond_timedwait_relative(cond, mutex, tsp);
+	return __pthread_cond_timedwait_relative(cond, mutex, tsp);
 }
 
 int __pthread_cond_timedwait_relative(pthread_cond_t* cond, pthread_mutex_t* mutex, const timespec* reltime) {
-  int old_value = cond->value; // ***this is the key point***
+	int old_value = cond->value; // ***this is the key point***
 
-  pthread_mutex_unlock(mutex);
+	pthread_mutex_unlock(mutex);
 
-  // call system call with ***old value***
-  int status = __futex_wait_ex(&cond->value, COND_IS_SHARED(cond->value), old_value, reltime);
+	// call system call with ***old value***
+	int status = __futex_wait_ex(&cond->value, COND_IS_SHARED(cond->value), old_value, reltime);
 
-  pthread_mutex_lock(mutex);
+	pthread_mutex_lock(mutex);
 
-  if (status == -ETIMEDOUT) {
-    return ETIMEDOUT;
-  }
-  return 0;
+	if (status == -ETIMEDOUT) {
+		return ETIMEDOUT;
+	}
+	return 0;
 }
 
 static inline int __futex_wake_ex(volatile void* ftx, bool shared, int count) {
-  return __futex(ftx, shared ? FUTEX_WAKE : FUTEX_WAKE_PRIVATE, count, NULL);
+	return __futex(ftx, shared ? FUTEX_WAKE : FUTEX_WAKE_PRIVATE, count, NULL);
 }
 
 static inline __always_inline int __futex(volatile void* ftx, int op, int value, const struct timespec* timeout) {
-  // Our generated syscall assembler sets errno, but our callers (pthread functions) don't want to.
-  int saved_errno = errno;
-  int result = syscall(__NR_futex, ftx, op, value, timeout);
-  if (__predict_false(result == -1)) {
-    result = -errno;
-    errno = saved_errno;
-  }
-  return result;
+	// Our generated syscall assembler sets errno, but our callers (pthread functions) don't want to.
+	int saved_errno = errno;
+	int result = syscall(__NR_futex, ftx, op, value, timeout);
+	if (__predict_false(result == -1)) {
+		result = -errno;
+		errno = saved_errno;
+	}
+	return result;
 }
 ```
 
@@ -178,8 +178,6 @@ FUTEX_WAIT
 
 # Conclusion
 
-Library use this mutex to guarantee that `unlock and wait` is atomic and not interrupted.
+Library uses this mutex to guarantee that `unlock and wait` is atomic and not interrupted.
 `Atomic` here is not like what we have already known before, it uses a trick way to avoid
-`signal lost` bug.
-
-The library considers it carefully, hides the potential problem and provides easy API to use.
+`signal lost` bug. The library considers it carefully, hides the potential problem and provides easy API to use.
