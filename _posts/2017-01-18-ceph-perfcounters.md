@@ -167,7 +167,7 @@ PerfCounters *PerfCountersBuilder::create_perf_counters()
 
 看看模块使用的例子，以FileStore为例:
 
-```
+```cpp
 FileStore::FileStore(CephContext* cct, const std::string &base,
 		const std::string &jdev, osflagbits_t flags,
 		const char *name, bool do_update) :
