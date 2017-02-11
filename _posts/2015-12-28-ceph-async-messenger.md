@@ -380,7 +380,7 @@ int EpollDriver::event_wait(vector<FiredFileEvent> &fired_events, struct timeval
       if (e->events & EPOLLOUT) mask |= EVENT_WRITABLE;
       if (e->events & EPOLLERR) mask |= EVENT_WRITABLE;
       if (e->events & EPOLLHUP) mask |= EVENT_WRITABLE;
-	  // 记录下已经发生的事件
+      // 记录下已经发生的事件
       fired_events[j].fd = e->data.fd;
       fired_events[j].mask = mask;
     }
@@ -439,7 +439,7 @@ int Processor::start(Worker *w)
   // start thread
   if (listen_sd > 0) {
     worker = w;
-	// 创建可读事件, 最终会调用epoll_ctl将listen_sd加进epoll进行管理
+    // 创建可读事件, 最终会调用epoll_ctl将listen_sd加进epoll进行管理
     w->center.create_file_event(listen_sd, EVENT_READABLE,
                                 EventCallbackRef(new C_processor_accept(this))); // 注意事件的callback
   }
@@ -770,7 +770,7 @@ int AsyncConnection::_process_connection()
 
         sd = net.connect(get_peer_addr()); // 通过net类的功能，实际上就是调用connect系统调用，建立socket通信
 
-		// 连接成功后，将socket fd加入epoll进行管理
+        // 连接成功后，将socket fd加入epoll进行管理
         center->create_file_event(sd, EVENT_READABLE, read_handler);
         state = STATE_CONNECTING_WAIT_BANNER;
         break;
