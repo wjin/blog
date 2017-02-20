@@ -193,4 +193,4 @@ FileStore::FileStore(CephContext* cct, const std::string &base,
 
 * 每个需要性能计数的模块，实现一个PerfCounters，内部包含很多item(k/v)，并且分配一个范围，不同模块的这个范围实际上可以重复
 
-* 模块使用PerfCountersBuilder来创建PerfCouners并检查item合法性
+* 模块使用PerfCountersBuilder来创建PerfCounters并检查item合法性
