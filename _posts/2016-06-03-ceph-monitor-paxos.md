@@ -350,11 +350,11 @@ pending_pn=100
 * paxos新commit过的k/v值
 * 新提议的值内部的事务操作对服务的影响
 
-leader经历的转态转换图:
+leader经历的状态转换图:
 
 ![img](/assets/img/post/ceph_mon_paxos_1.png)
 
-peon经历的转态转换图:
+peon经历的状态转换图:
 
 ![img](/assets/img/post/ceph_mon_paxos_2.png)
 
