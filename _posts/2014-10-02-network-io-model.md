@@ -7,7 +7,6 @@ tags: []
 ---
 {% include JB/setup %}
 
-
 # Synchronous vs Asynchronous
 
 **Synchronous I/O** would block the calling process until the I/O operation is done.
@@ -45,9 +44,14 @@ Above three models belong to synchronous I/O.
 
 **Asynchronous**
 
-There are two aio ways in linux, glibc aio and libaio. Glibc aio is simulated by multi-threads and its performance is not good.
-However, libaio is a library that wrappers linux aio system calls, so its performance is better than glibc aio. Normally, we use
-libaio to develop applications, its major APIs are listed here:
+Kernel does the IO and then notifies applications. For example, posix aio_read and aio_write APIs.
+However, they are not widely used by applications.
+
+Above cencepts are from book Unix Networking Programming.
+
+Regard to implementation in linux, there are two aio ways, glibc aio (posix standard implementaion) and libaio, but they are specific to file io, not socket.
+Glibc aio is simulated by multi-threads and its performance is not good. However, libaio is a library that wrappers linux aio system calls,
+so its performance is better than glibc aio. Normally, we use libaio to develop applications, its major APIs are listed here:
 
 * io_setup
 
