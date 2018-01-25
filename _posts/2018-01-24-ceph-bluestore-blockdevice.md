@@ -15,6 +15,8 @@ Ceph新的存储引擎BlueStore在Luminous版本已经变成默认的存储引�
 
 BlockDevice类图继承关系如下:
 
+![img](/assets/img/post/ceph_bluestore_blockdevice.png)
+
 ### KernelDevice 
 
 鉴于目前大多数部署还是使用的hdd和sata ssd，故以此为例作介绍，对应的派生类是KernelDevice，主要数据成员如下:
