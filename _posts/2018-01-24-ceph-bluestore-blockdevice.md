@@ -17,7 +17,7 @@ BlockDevice类图继承关系如下:
 
 ![img](/assets/img/post/ceph_bluestore_blockdevice.png)
 
-### KernelDevice 
+### Data Structure
 
 鉴于目前大多数部署还是使用的hdd和sata ssd，故以此为例作介绍，对应的派生类是KernelDevice，主要数据成员如下:
 
@@ -198,7 +198,7 @@ void KernelDevice::_aio_thread()
 {
 	......
 	while (!aio_stop) {
-		int r = aio_queue.get_next_completed(cct->_conf->bdev_aio_poll_ms, // 调用libaio相关的aio，检查io是否完成
+		int r = aio_queue.get_next_completed(cct->_conf->bdev_aio_poll_ms, // 调用libaio相关的api，检查io是否完成
 				aio, max);
 
 		if (ioc->priv) {
