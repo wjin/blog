@@ -13,6 +13,10 @@ BlueStore存储引擎实现中，需要存储数据和元数据。由于kv存储
 
 作为文件系统本身，需要存放日志，保护文件系统数据的一致性。对于RocksDB，也可以对.log文件单独配置性能更好的磁盘。所以在BlueFS内部实现的时候，支持多种不同类型的设备(wal/db/slow)，实现非常灵活，大致原则是RocksDB的.log文件和BlueFS自身的日志文件优先使用wal，BlueFS中的普通文件(RocksDB的.sst文件)优先使用db，当当前设备空间不足的时候，自动降级到下一级的设备。
 
+文件系统本身需要使用磁盘空间存放数据，但是BlueFS并不需要管理磁盘空闲空间，它将文件分配和释放空间的操作记录在日志文件中。每次重新加载的时候，扫描文件系统的日志，在内存中还原整个文件系统的元数据信息。运行过程中，磁盘空间使用情况大致如下(借用Ceph作者Sage的图):
+
+![img](/assets/img/post/ceph_bluestore_bluefs.png)
+
 # Data Structure
 
 先看看在BlueFS中标识一个文件的inode:
