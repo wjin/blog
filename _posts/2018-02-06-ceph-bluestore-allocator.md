@@ -135,7 +135,7 @@ int BlueFS::_allocate(uint8_t id, uint64_t len, mempool::bluefs::vector<bluefs_e
 }
 ```
 
-这个函数在多种情况下会调用，包括为普通文件分配片空间的\_preallocate以及和日志文件相关的compact/flush等操作。以普通文件为例:
+这个函数在多种情况下会调用，包括为普通文件分配空间的\_preallocate以及和日志文件相关的compact/flush等操作。以普通文件为例:
 
 ```cpp
 int BlueFS::_preallocate(FileRef f, uint64_t off, uint64_t len)

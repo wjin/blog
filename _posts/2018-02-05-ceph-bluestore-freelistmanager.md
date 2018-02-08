@@ -13,8 +13,6 @@ tags: [ceph]
 
 管理空闲空间的类为FreelistManager，最开始有extent和bitmap两种实现，现在已经默认为bitmap实现，并将extent的实现废弃。空闲空间需要持久化到磁盘，并且在运行过程中通过事务更新，很自然的方式可以用k/v存储，将block按一定数量组成**段**，每个段对应一个k/v键值对，key为第一个block在磁盘物理地址空间的offset，value为段内每个block的状态，即由0/1组成的位图，0为空闲，1为使用，这样可以通过与1进行异或运算，将分配和回收空间两种操作统一起来。
 
-Allocator用来从空闲空间分配block，初始化Allocator的时候，其管理的空间为FreelistManager的整个空间，Allocator分配的时候，只是在内存中进行了标记，最终数据的持久化需要结合Allocator的两种使用场景来分析。
-
 # Data Structure
 
 ```cpp

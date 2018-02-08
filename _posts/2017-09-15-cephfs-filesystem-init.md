@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "Cephfs Filesystem Init"
+title: "CephFS Filesystem Init"
 description: ""
 category: ceph
 tags: [ceph]

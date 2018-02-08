@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "Cephfs Kernel Client Throughput Limitation"
+title: "CephFS Kernel Client Throughput Limitation"
 description: ""
 category: ceph
 tags: [ceph]

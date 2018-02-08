@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "CephFs Remove File Error"
+title: "CephFS Remove File Error"
 description: ""
 category: ceph
 tags: [ceph-ops]
